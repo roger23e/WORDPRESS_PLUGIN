@@ -139,6 +139,7 @@ class Oracle_Database_Widget extends WP_Widget {
                 <option value="ar_mill" <?php selected($map_region, 'ar_mill'); ?>><?php _e('Argentina', 'oracle-widget'); ?></option>
                 <option value="br_mill" <?php selected($map_region, 'br_mill'); ?>><?php _e('Brasil', 'oracle-widget'); ?></option>
                 <option value="co_mill" <?php selected($map_region, 'co_mill'); ?>><?php _e('Colombia', 'oracle-widget'); ?></option>
+                <option value="ve_mill" <?php selected($map_region, 've_mill'); ?>><?php _e('Venezuela', 'oracle-widget'); ?></option>
             </select>
         </p>
         
@@ -791,16 +792,18 @@ function oracle_widget_get_used_map_regions() {
     foreach ($widget_instances as $instance) {
         if (isset($instance['map_region']) && !empty($instance['map_region'])) {
             $region = $instance['map_region'];
-            // Convert region names to actual map file names
-            if ($region === 'world') {
-                $used_regions[] = 'world-mill';
-            } elseif ($region === 'us_aea') {
-                $used_regions[] = 'us-aea';
-            } elseif ($region === 'europe_mill') {
-                $used_regions[] = 'europe-mill';
-            } else {
-                $used_regions[] = $region;
-            }
+                         // Convert region names to actual map file names
+             if ($region === 'world') {
+                 $used_regions[] = 'world-mill';
+             } elseif ($region === 'us_aea') {
+                 $used_regions[] = 'us-aea';
+             } elseif ($region === 'europe_mill') {
+                 $used_regions[] = 'europe-mill';
+             } elseif ($region === 've_mill') {
+                 $used_regions[] = 've-mill';
+             } else {
+                 $used_regions[] = $region;
+             }
         }
     }
     
@@ -810,18 +813,20 @@ function oracle_widget_get_used_map_regions() {
         if (preg_match_all('/' . $pattern . '/s', $post->post_content, $matches)) {
             foreach ($matches[3] as $attrs) {
                 $atts = shortcode_parse_atts($attrs);
-                if (isset($atts['map_region'])) {
-                    $region = $atts['map_region'];
-                    if ($region === 'world') {
-                        $used_regions[] = 'world-mill';
-                    } elseif ($region === 'us_aea') {
-                        $used_regions[] = 'us-aea';
-                    } elseif ($region === 'europe_mill') {
-                        $used_regions[] = 'europe-mill';
-                    } else {
-                        $used_regions[] = $region;
-                    }
-                }
+                                 if (isset($atts['map_region'])) {
+                     $region = $atts['map_region'];
+                     if ($region === 'world') {
+                         $used_regions[] = 'world-mill';
+                     } elseif ($region === 'us_aea') {
+                         $used_regions[] = 'us-aea';
+                     } elseif ($region === 'europe_mill') {
+                         $used_regions[] = 'europe-mill';
+                     } elseif ($region === 've_mill') {
+                         $used_regions[] = 've-mill';
+                     } else {
+                         $used_regions[] = $region;
+                     }
+                 }
             }
         }
     }
