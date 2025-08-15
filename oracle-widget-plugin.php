@@ -962,7 +962,12 @@ function oracle_widget_settings_page() {
                     </table>
                     <p class="submit">
                         <input type="submit" name="update_connection" class="button-primary" value="<?php _e('Actualizar Conexión', 'oracle-widget'); ?>">
+                        <input type="button" id="test-connection-edit-btn" class="button" value="<?php esc_attr_e('Probar Conexión', 'oracle-widget'); ?>">
                         <a href="?page=oracle-widget-settings" class="button"><?php _e('Cancelar', 'oracle-widget'); ?></a>
+                        <span id="test-connection-edit-result" style="margin-left: 15px;"></span>
+                    </p>
+                    <p class="description">
+                        <strong><?php esc_html_e('Consejo:', 'oracle-widget'); ?></strong> <?php esc_html_e('Ingrese la contraseña y use "Probar Conexión" para verificar los cambios antes de actualizar.', 'oracle-widget'); ?>
                     </p>
                 </form>
             <?php else: ?>
@@ -997,6 +1002,11 @@ function oracle_widget_settings_page() {
                     </table>
                     <p class="submit">
                         <input type="submit" name="submit_connection" class="button-primary" value="<?php _e('Guardar Conexión', 'oracle-widget'); ?>">
+                        <input type="button" id="test-connection-btn" class="button" value="<?php esc_attr_e('Probar Conexión', 'oracle-widget'); ?>">
+                        <span id="test-connection-result" style="margin-left: 15px;"></span>
+                    </p>
+                    <p class="description">
+                        <strong><?php esc_html_e('Consejo:', 'oracle-widget'); ?></strong> <?php esc_html_e('Use el botón "Probar Conexión" para verificar que los datos son correctos antes de guardar.', 'oracle-widget'); ?>
                     </p>
                 </form>
             <?php endif; ?>
@@ -1149,6 +1159,73 @@ function oracle_widget_settings_page() {
             $(this).addClass('nav-tab-active');
             $('.tab-content').hide();
             $($(this).attr('href')).show();
+        });
+        
+        // Test connection functionality
+        function testConnection(formSelector, resultSelector) {
+            var $form = $(formSelector);
+            var $result = $(resultSelector);
+            
+            var connectionData = {
+                action: 'oracle_widget_test_connection',
+                nonce: '<?php echo wp_create_nonce('oracle_widget_test_connection'); ?>',
+                host: $form.find('input[name="host"]').val(),
+                port: $form.find('input[name="port"]').val(),
+                service_name: $form.find('input[name="service_name"]').val(),
+                username: $form.find('input[name="username"]').val(),
+                password: $form.find('input[name="password"]').val()
+            };
+            
+            // Validate required fields
+            if (!connectionData.host || !connectionData.port || !connectionData.service_name || !connectionData.username) {
+                $result.html('<span style="color: #d63638; font-weight: bold;">⚠️ <?php esc_html_e('Por favor complete todos los campos requeridos', 'oracle-widget'); ?></span>');
+                return;
+            }
+            
+            // For edit form, password might be empty (keeping existing)
+            if (!connectionData.password) {
+                if (formSelector.indexOf('edit') !== -1) {
+                    $result.html('<span style="color: #d63638; font-weight: bold;">⚠️ <?php esc_html_e('Ingrese la contraseña para probar la conexión', 'oracle-widget'); ?></span>');
+                } else {
+                    $result.html('<span style="color: #d63638; font-weight: bold;">⚠️ <?php esc_html_e('La contraseña es requerida', 'oracle-widget'); ?></span>');
+                }
+                return;
+            }
+            
+            $result.html('<span style="color: #0073aa;"><span class="oracle-test-loading"></span><?php esc_html_e('Probando conexión...', 'oracle-widget'); ?></span>');
+            
+            $.ajax({
+                url: ajaxurl,
+                type: 'POST',
+                data: connectionData,
+                timeout: 30000,
+                success: function(response) {
+                    if (response.success) {
+                        $result.html('<span style="color: #00a32a; font-weight: bold;">✅ ' + response.data.message + '</span>');
+                    } else {
+                        $result.html('<span style="color: #d63638; font-weight: bold;">❌ ' + response.data.message + '</span>');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    var errorMsg = '<?php esc_html_e('Error de conexión: ', 'oracle-widget'); ?>';
+                    if (status === 'timeout') {
+                        errorMsg += '<?php esc_html_e('Tiempo de espera agotado', 'oracle-widget'); ?>';
+                    } else {
+                        errorMsg += error;
+                    }
+                    $result.html('<span style="color: #d63638; font-weight: bold;">❌ ' + errorMsg + '</span>');
+                }
+            });
+        }
+        
+        // Test connection for new connection form
+        $('#test-connection-btn').click(function() {
+            testConnection('form', '#test-connection-result');
+        });
+        
+        // Test connection for edit connection form
+        $('#test-connection-edit-btn').click(function() {
+            testConnection('form', '#test-connection-edit-result');
         });
     });
     </script>
@@ -1648,9 +1725,189 @@ function oracle_widget_styles() {
             backface-visibility: hidden;
         }
     </style>
+    
+    <?php if (is_admin() && isset($_GET['page']) && $_GET['page'] === 'oracle-widget-settings'): ?>
+    <style>
+        /* Admin styles for test connection functionality */
+        #test-connection-btn, #test-connection-edit-btn {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            border-color: #28a745;
+            color: white;
+            font-weight: 600;
+            text-shadow: 0 1px 1px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2);
+            transition: all 0.2s ease;
+        }
+        
+        #test-connection-btn:hover, #test-connection-edit-btn:hover {
+            background: linear-gradient(135deg, #218838 0%, #1ea085 100%);
+            border-color: #1e7e34;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
+        }
+        
+        #test-connection-btn:active, #test-connection-edit-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2);
+        }
+        
+        #test-connection-result, #test-connection-edit-result {
+            display: inline-block;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-weight: 500;
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        
+        /* Loading spinner */
+        .oracle-test-loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #0073aa;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <?php endif; ?>
     <?php
 }
 add_action('wp_head', 'oracle_widget_styles');
+
+/**
+ * AJAX handler for testing database connection
+ */
+function oracle_widget_test_connection_ajax() {
+    // Check if user has permission
+    if (!current_user_can('manage_options')) {
+        wp_die(esc_html__('No tienes permisos para realizar esta acción.', 'oracle-widget'));
+    }
+    
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'oracle_widget_test_connection')) {
+        wp_send_json_error(array('message' => __('Verificación de seguridad fallida.', 'oracle-widget')));
+        return;
+    }
+    
+    // Check if OCI8 extension is available
+    if (!extension_loaded('oci8')) {
+        wp_send_json_error(array('message' => __('La extensión Oracle OCI8 no está instalada en el servidor.', 'oracle-widget')));
+        return;
+    }
+    
+    // Get and validate connection parameters
+    $host = sanitize_text_field($_POST['host'] ?? '');
+    $port = intval($_POST['port'] ?? 0);
+    $service_name = sanitize_text_field($_POST['service_name'] ?? '');
+    $username = sanitize_text_field($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
+    
+    // Validate required fields
+    if (empty($host) || empty($port) || empty($service_name) || empty($username)) {
+        wp_send_json_error(array('message' => __('Todos los campos son requeridos.', 'oracle-widget')));
+        return;
+    }
+    
+    // Validate port number
+    if ($port < 1 || $port > 65535) {
+        wp_send_json_error(array('message' => __('El puerto debe ser un número entre 1 y 65535.', 'oracle-widget')));
+        return;
+    }
+    
+    // Validate host (basic check for valid hostname/IP)
+    if (!filter_var($host, FILTER_VALIDATE_IP) && !preg_match('/^[a-zA-Z0-9\-\.]+$/', $host)) {
+        wp_send_json_error(array('message' => __('El host no es válido.', 'oracle-widget')));
+        return;
+    }
+    
+    // If password is empty, it might be an edit form - we can't test without password
+    if (empty($password)) {
+        wp_send_json_error(array('message' => __('La contraseña es requerida para probar la conexión.', 'oracle-widget')));
+        return;
+    }
+    
+    try {
+        // Create connection string with timeout
+        $connection_string = "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={$host})(PORT={$port}))(CONNECT_DATA=(SERVICE_NAME={$service_name}))(CONNECT_TIMEOUT=10)(RETRY_COUNT=1))";
+        
+        // Attempt to connect to Oracle
+        $db_connection = @oci_connect($username, $password, $connection_string);
+        
+        if (!$db_connection) {
+            $error = oci_error();
+            $error_message = isset($error['message']) ? $error['message'] : __('Error de conexión desconocido', 'oracle-widget');
+            
+            // Log error for debugging
+            error_log('Oracle Widget Test Connection Error: ' . $error_message);
+            
+            wp_send_json_error(array('message' => sprintf(__('Error de conexión: %s', 'oracle-widget'), esc_html($error_message))));
+            return;
+        }
+        
+        // Test a simple query to verify the connection works
+        $test_query = "SELECT 1 FROM DUAL";
+        $statement = @oci_parse($db_connection, $test_query);
+        
+        if (!$statement) {
+            $error = oci_error($db_connection);
+            oci_close($db_connection);
+            wp_send_json_error(array('message' => sprintf(__('Error al preparar consulta de prueba: %s', 'oracle-widget'), esc_html($error['message'] ?? 'Error desconocido'))));
+            return;
+        }
+        
+        $result = @oci_execute($statement);
+        
+        if (!$result) {
+            $error = oci_error($statement);
+            oci_free_statement($statement);
+            oci_close($db_connection);
+            wp_send_json_error(array('message' => sprintf(__('Error al ejecutar consulta de prueba: %s', 'oracle-widget'), esc_html($error['message'] ?? 'Error desconocido'))));
+            return;
+        }
+        
+        // Get Oracle version info for additional verification
+        $version_query = "SELECT BANNER FROM V\$VERSION WHERE ROWNUM = 1";
+        $version_statement = @oci_parse($db_connection, $version_query);
+        $oracle_version = '';
+        
+        if ($version_statement && @oci_execute($version_statement)) {
+            $version_row = oci_fetch_assoc($version_statement);
+            if ($version_row && isset($version_row['BANNER'])) {
+                $oracle_version = ' (' . substr($version_row['BANNER'], 0, 50) . '...)';
+            }
+            oci_free_statement($version_statement);
+        }
+        
+        // Clean up
+        oci_free_statement($statement);
+        oci_close($db_connection);
+        
+        // Success response
+        wp_send_json_success(array(
+            'message' => sprintf(__('¡Conexión exitosa!%s', 'oracle-widget'), $oracle_version)
+        ));
+        
+    } catch (Exception $e) {
+        error_log('Oracle Widget Test Connection Exception: ' . $e->getMessage());
+        wp_send_json_error(array('message' => sprintf(__('Error inesperado: %s', 'oracle-widget'), esc_html($e->getMessage()))));
+    } catch (Error $e) {
+        error_log('Oracle Widget Test Connection Fatal Error: ' . $e->getMessage());
+        wp_send_json_error(array('message' => sprintf(__('Error fatal: %s', 'oracle-widget'), esc_html($e->getMessage()))));
+    }
+}
+add_action('wp_ajax_oracle_widget_test_connection', 'oracle_widget_test_connection_ajax');
 
 /**
  * Plugin activation hook
