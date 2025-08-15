@@ -1,0 +1,1244 @@
+<?php
+/**
+ * Plugin Name: Oracle Database Widget
+ * Plugin URI: https://yourwebsite.com
+ * Description: A WordPress widget that displays information from an Oracle database
+ * Version: 1.0.0
+ * Author: Your Name
+ * License: GPL v2 or later
+ * Text Domain: oracle-widget
+ */
+
+// Prevent direct access
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+// Define plugin constants
+define('ORACLE_WIDGET_VERSION', '1.0.0');
+define('ORACLE_WIDGET_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('ORACLE_WIDGET_PLUGIN_PATH', plugin_dir_path(__FILE__));
+
+/**
+ * Oracle Database Widget Class
+ */
+class Oracle_Database_Widget extends WP_Widget {
+    
+    /**
+     * Constructor
+     */
+    public function __construct() {
+        parent::__construct(
+            'oracle_database_widget', // Base ID
+            __('Oracle Database Widget', 'oracle-widget'), // Widget name
+            array(
+                'description' => __('Display information from Oracle database', 'oracle-widget'),
+                'classname' => 'oracle-database-widget'
+            )
+        );
+    }
+    
+    /**
+     * Widget frontend display
+     */
+    public function widget($args, $instance) {
+        echo $args['before_widget'];
+        
+        $title = !empty($instance['title']) ? $instance['title'] : '';
+        if (!empty($title)) {
+            echo $args['before_title'] . apply_filters('widget_title', $title) . $args['after_title'];
+        }
+        
+        // Get widget content
+        $content = $this->get_oracle_data($instance);
+        
+        if ($content) {
+            echo '<div class="oracle-widget-content">';
+            echo $content;
+            echo '</div>';
+        } else {
+            echo '<p>' . __('No hay datos disponibles', 'oracle-widget') . '</p>';
+        }
+        
+        echo $args['after_widget'];
+    }
+    
+    /**
+     * Widget backend form
+     */
+    public function form($instance) {
+        $title = !empty($instance['title']) ? $instance['title'] : '';
+        $connection_id = !empty($instance['connection_id']) ? $instance['connection_id'] : '';
+        $query_id = !empty($instance['query_id']) ? $instance['query_id'] : '';
+        $limit = !empty($instance['limit']) ? $instance['limit'] : '10';
+        $order_by = !empty($instance['order_by']) ? $instance['order_by'] : '';
+        $display_type = !empty($instance['display_type']) ? $instance['display_type'] : 'table';
+        $map_region = !empty($instance['map_region']) ? $instance['map_region'] : 'world';
+        
+        // Get saved connections and queries
+        $connections = get_option('oracle_widget_connections', array());
+        $queries = get_option('oracle_widget_queries', array());
+        ?>
+        
+        <p>
+            <label for="<?php echo $this->get_field_id('title'); ?>"><?php _e('Título:', 'oracle-widget'); ?></label>
+            <input class="widefat" id="<?php echo $this->get_field_id('title'); ?>" name="<?php echo $this->get_field_name('title'); ?>" type="text" value="<?php echo esc_attr($title); ?>">
+        </p>
+        
+        <p>
+            <label for="<?php echo $this->get_field_id('connection_id'); ?>"><?php _e('Conexión de Base de Datos:', 'oracle-widget'); ?></label>
+            <select class="widefat" id="<?php echo $this->get_field_id('connection_id'); ?>" name="<?php echo $this->get_field_name('connection_id'); ?>">
+                <option value=""><?php _e('-- Seleccionar Conexión --', 'oracle-widget'); ?></option>
+                <?php foreach ($connections as $id => $connection): ?>
+                    <option value="<?php echo esc_attr($id); ?>" <?php selected($connection_id, $id); ?>>
+                        <?php echo esc_html($connection['name']); ?> (<?php echo esc_html($connection['host']); ?>)
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <small><a href="<?php echo admin_url('admin.php?page=oracle-widget-settings'); ?>"><?php _e('Gestionar Conexiones', 'oracle-widget'); ?></a></small>
+        </p>
+        
+        <p>
+            <label for="<?php echo $this->get_field_id('query_id'); ?>"><?php _e('Consulta SQL:', 'oracle-widget'); ?></label>
+            <select class="widefat" id="<?php echo $this->get_field_id('query_id'); ?>" name="<?php echo $this->get_field_name('query_id'); ?>">
+                <option value=""><?php _e('-- Seleccionar Consulta --', 'oracle-widget'); ?></option>
+                <?php foreach ($queries as $id => $query): ?>
+                    <option value="<?php echo esc_attr($id); ?>" <?php selected($query_id, $id); ?>>
+                        <?php echo esc_html($query['name']); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <small><a href="<?php echo admin_url('admin.php?page=oracle-widget-settings'); ?>"><?php _e('Gestionar Consultas', 'oracle-widget'); ?></a></small>
+        </p>
+        
+        <p>
+            <label for="<?php echo $this->get_field_id('display_type'); ?>"><?php _e('Tipo de Visualización:', 'oracle-widget'); ?></label>
+            <select class="widefat" id="<?php echo $this->get_field_id('display_type'); ?>" name="<?php echo $this->get_field_name('display_type'); ?>">
+                <option value="table" <?php selected($display_type, 'table'); ?>><?php _e('Tabla', 'oracle-widget'); ?></option>
+                <option value="map" <?php selected($display_type, 'map'); ?>><?php _e('Mapa (requiere columnas LATITUDE, LONGITUDE, NAME)', 'oracle-widget'); ?></option>
+                <option value="both" <?php selected($display_type, 'both'); ?>><?php _e('Tabla y Mapa (requiere columnas LATITUDE, LONGITUDE, NAME)', 'oracle-widget'); ?></option>
+            </select>
+        </p>
+        
+        <p>
+            <label for="<?php echo $this->get_field_id('map_region'); ?>"><?php _e('Región del Mapa:', 'oracle-widget'); ?></label>
+            <select class="widefat" id="<?php echo $this->get_field_id('map_region'); ?>" name="<?php echo $this->get_field_name('map_region'); ?>">
+                <option value="world" <?php selected($map_region, 'world'); ?>><?php _e('Mundo', 'oracle-widget'); ?></option>
+                <option value="us_aea" <?php selected($map_region, 'us_aea'); ?>><?php _e('Estados Unidos', 'oracle-widget'); ?></option>
+                <option value="europe_mill" <?php selected($map_region, 'europe_mill'); ?>><?php _e('Europa', 'oracle-widget'); ?></option>
+                <option value="es_mill" <?php selected($map_region, 'es_mill'); ?>><?php _e('España', 'oracle-widget'); ?></option>
+                <option value="mx_mill" <?php selected($map_region, 'mx_mill'); ?>><?php _e('México', 'oracle-widget'); ?></option>
+                <option value="ar_mill" <?php selected($map_region, 'ar_mill'); ?>><?php _e('Argentina', 'oracle-widget'); ?></option>
+                <option value="br_mill" <?php selected($map_region, 'br_mill'); ?>><?php _e('Brasil', 'oracle-widget'); ?></option>
+                <option value="co_mill" <?php selected($map_region, 'co_mill'); ?>><?php _e('Colombia', 'oracle-widget'); ?></option>
+            </select>
+        </p>
+        
+        <p>
+            <label for="<?php echo $this->get_field_id('limit'); ?>"><?php _e('Límite de Filas:', 'oracle-widget'); ?></label>
+            <input class="widefat" id="<?php echo $this->get_field_id('limit'); ?>" name="<?php echo $this->get_field_name('limit'); ?>" type="number" value="<?php echo esc_attr($limit); ?>" min="1" max="100">
+        </p>
+        
+        <p>
+            <label for="<?php echo $this->get_field_id('order_by'); ?>"><?php _e('Ordenar Por:', 'oracle-widget'); ?></label>
+            <input class="widefat" id="<?php echo $this->get_field_id('order_by'); ?>" name="<?php echo $this->get_field_name('order_by'); ?>" type="text" value="<?php echo esc_attr($order_by); ?>" placeholder="<?php _e('columna1, columna2 DESC, columna3 ASC', 'oracle-widget'); ?>">
+            <small><?php _e('Columnas separadas por coma. Use DESC o ASC para orden descendente o ascendente.', 'oracle-widget'); ?></small>
+        </p>
+        
+        <?php
+    }
+    
+    /**
+     * Save widget settings
+     */
+    public function update($new_instance, $old_instance) {
+        $instance = array();
+        $instance['title'] = (!empty($new_instance['title'])) ? strip_tags($new_instance['title']) : '';
+        $instance['connection_id'] = (!empty($new_instance['connection_id'])) ? strip_tags($new_instance['connection_id']) : '';
+        $instance['query_id'] = (!empty($new_instance['query_id'])) ? strip_tags($new_instance['query_id']) : '';
+        $instance['limit'] = (!empty($new_instance['limit'])) ? intval($new_instance['limit']) : 10;
+        $instance['order_by'] = (!empty($new_instance['order_by'])) ? strip_tags($new_instance['order_by']) : '';
+        $instance['display_type'] = (!empty($new_instance['display_type'])) ? strip_tags($new_instance['display_type']) : 'table';
+        $instance['map_region'] = (!empty($new_instance['map_region'])) ? strip_tags($new_instance['map_region']) : 'world';
+        
+        return $instance;
+    }
+    
+    /**
+     * Get data from Oracle database (now public for shortcode access)
+     */
+    public function get_oracle_data($instance) {
+        // Check if OCI8 extension is available
+        if (!extension_loaded('oci8')) {
+            return '<p class="error">' . __('La extensión Oracle OCI8 no está instalada', 'oracle-widget') . '</p>';
+        }
+        
+        // Get connection and query data
+        $connection_id = $instance['connection_id'] ?? '';
+        $query_id = $instance['query_id'] ?? '';
+        $limit = $instance['limit'] ?? 10;
+        $order_by = $instance['order_by'] ?? '';
+        $display_type = $instance['display_type'] ?? 'table';
+        $map_region = $instance['map_region'] ?? 'world';
+        
+        if (empty($connection_id) || empty($query_id)) {
+            return '<p class="error">' . __('Por favor configure la conexión de base de datos y la consulta', 'oracle-widget') . '</p>';
+        }
+        
+        $connections = get_option('oracle_widget_connections', array());
+        $queries = get_option('oracle_widget_queries', array());
+        
+        // Debug information (only for administrators)
+        if (current_user_can('manage_options')) {
+            $debug_info = '<div style="background: #f0f0f0; padding: 10px; margin: 10px 0; border: 1px solid #ccc; font-size: 12px;">';
+            $debug_info .= '<strong>Información de Depuración:</strong><br>';
+            $debug_info .= 'Connection ID: ' . esc_html($connection_id) . '<br>';
+            $debug_info .= 'Query ID: ' . esc_html($query_id) . '<br>';
+            $debug_info .= 'Display Type: ' . esc_html($display_type) . '<br>';
+            $debug_info .= 'Map Region: ' . esc_html($map_region) . '<br>';
+            $debug_info .= 'Order By: ' . esc_html($order_by) . '<br>';
+            $debug_info .= 'Available Connections: ' . implode(', ', array_keys($connections)) . '<br>';
+            $debug_info .= 'Available Queries: ' . implode(', ', array_keys($queries)) . '<br>';
+            $debug_info .= '</div>';
+        } else {
+            $debug_info = '';
+        }
+        
+        if (!isset($connections[$connection_id])) {
+            return '<p class="error">' . __('Conexión no encontrada: ', 'oracle-widget') . esc_html($connection_id) . '</p>' . $debug_info;
+        }
+        
+        if (!isset($queries[$query_id])) {
+            return '<p class="error">' . __('Consulta no encontrada: ', 'oracle-widget') . esc_html($query_id) . '</p>' . $debug_info;
+        }
+        
+        $connection = $connections[$connection_id];
+        $query_data = $queries[$query_id];
+        
+        $host = $connection['host'];
+        $port = $connection['port'];
+        $service_name = $connection['service_name'];
+        $username = $connection['username'];
+        $password = $connection['password'];
+        $query = $query_data['query'];
+        
+        try {
+            // Create connection string
+            $connection_string = "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={$host})(PORT={$port}))(CONNECT_DATA=(SERVICE_NAME={$service_name})))";
+            
+            // Connect to Oracle
+            $db_connection = oci_connect($username, $password, $connection_string);
+            
+            if (!$db_connection) {
+                $error = oci_error();
+                return '<p class="error">' . __('Error de conexión a la base de datos: ', 'oracle-widget') . $error['message'] . '</p>';
+            }
+            
+            // Replace :limit placeholder
+            $query = str_replace(':limit', $limit, $query);
+            
+            // Add ORDER BY clause if specified
+            if (!empty($order_by)) {
+                // Check if query already has ORDER BY
+                if (stripos($query, 'ORDER BY') === false) {
+                    $query .= ' ORDER BY ' . $order_by;
+                } else {
+                    // If ORDER BY already exists, replace it or append
+                    $query = preg_replace('/\s+ORDER\s+BY\s+.*$/i', '', $query);
+                    $query .= ' ORDER BY ' . $order_by;
+                }
+            }
+            
+            // Prepare and execute query
+            $statement = oci_parse($db_connection, $query);
+            
+            if (!$statement) {
+                $error = oci_error($db_connection);
+                oci_free_statement($statement);
+                oci_close($db_connection);
+                return '<p class="error">' . __('Error en la preparación de la consulta: ', 'oracle-widget') . $error['message'] . '</p>';
+            }
+            
+            $result = oci_execute($statement);
+            
+            if (!$result) {
+                $error = oci_error($statement);
+                oci_free_statement($statement);
+                oci_close($db_connection);
+                return '<p class="error">' . __('Error en la ejecución de la consulta: ', 'oracle-widget') . $error['message'] . '</p>';
+            }
+            
+            // Get column names
+            $columns = array();
+            $num_columns = oci_num_fields($statement);
+            for ($i = 1; $i <= $num_columns; $i++) {
+                $columns[] = oci_field_name($statement, $i);
+            }
+            
+            // Fetch all data
+            $data = array();
+            while ($row = oci_fetch_assoc($statement)) {
+                $data[] = $row;
+            }
+            
+            // Clean up
+            oci_free_statement($statement);
+            oci_close($db_connection);
+            
+                         // Add additional debug info for column detection
+             if (current_user_can('manage_options')) {
+                 $debug_info .= '<div style="background: #e8f4fd; padding: 10px; margin: 10px 0; border: 1px solid #007cba; font-size: 12px;">';
+                 $debug_info .= '<strong>Debug - Datos de la consulta:</strong><br>';
+                 $debug_info .= 'Número de columnas: ' . count($columns) . '<br>';
+                 $debug_info .= 'Número de filas: ' . count($data) . '<br>';
+                 $debug_info .= 'Columnas disponibles: ' . implode(', ', $columns) . '<br>';
+                 if (!empty($data)) {
+                     $debug_info .= 'Primera fila de datos: ' . implode(', ', array_values($data[0])) . '<br>';
+                 }
+                 $debug_info .= '</div>';
+             }
+             
+             // Generate output based on display type
+             if ($display_type === 'map') {
+                 return $this->generate_map_output($data, $columns, $map_region) . $debug_info;
+             } elseif ($display_type === 'both') {
+                 $table_output = $this->generate_table_output($data, $columns);
+                 $map_output = $this->generate_map_output($data, $columns, $map_region);
+                 
+                 // Check if map generation failed by looking for the specific error message
+                 if (strpos($map_output, 'Para mostrar en mapa, la consulta debe incluir las columnas: LATITUDE, LONGITUDE, NAME') !== false) {
+                     return $table_output . '<p class="error">' . __('Nota: El mapa no se pudo mostrar debido a columnas faltantes (LATITUDE, LONGITUDE, NAME)', 'oracle-widget') . '</p>' . $debug_info;
+                 }
+                 
+                 return $table_output . '<div class="table-map-container"><h3>' . __('Visualización en Mapa', 'oracle-widget') . '</h3><div class="map-section">' . $map_output . '</div></div>' . $debug_info;
+             } else {
+                 return $this->generate_table_output($data, $columns) . $debug_info;
+             }
+            
+        } catch (Exception $e) {
+            return '<p class="error">' . __('Error: ', 'oracle-widget') . esc_html($e->getMessage()) . '</p>' . $debug_info;
+        }
+    }
+    
+    /**
+     * Generate table output
+     */
+    private function generate_table_output($data, $columns) {
+        $output = '<div class="table-section"><table class="oracle-widget-table">';
+        
+        // Table header
+        $output .= '<thead><tr>';
+        foreach ($columns as $column) {
+            $output .= '<th>' . esc_html($column) . '</th>';
+        }
+        $output .= '</tr></thead>';
+        
+        // Table body
+        $output .= '<tbody>';
+        foreach ($data as $row) {
+            $output .= '<tr>';
+            foreach ($row as $value) {
+                $output .= '<td>' . esc_html($value) . '</td>';
+            }
+            $output .= '</tr>';
+        }
+        $output .= '</tbody>';
+        $output .= '</table></div>';
+        
+        return $output;
+    }
+    
+    /**
+     * Generate map output
+     */
+    private function generate_map_output($data, $columns, $map_region) {
+        // Find the actual column names (case-insensitive search)
+        $lat_col = null;
+        $lng_col = null;
+        $name_col = null;
+        
+        foreach ($columns as $col) {
+            $col_upper = strtoupper($col);
+            if ($col_upper === 'LATITUDE') {
+                $lat_col = $col;
+            } elseif ($col_upper === 'LONGITUDE') {
+                $lng_col = $col;
+            } elseif ($col_upper === 'NAME') {
+                $name_col = $col;
+            }
+        }
+        
+        // Check if required columns exist
+        if (!$lat_col || !$lng_col || !$name_col) {
+            $debug_info = '';
+            if (current_user_can('manage_options')) {
+                $debug_info = '<div style="background: #f0f0f0; padding: 10px; margin: 10px 0; border: 1px solid #ccc; font-size: 12px;">';
+                $debug_info .= '<strong>Debug - Columnas encontradas:</strong><br>';
+                $debug_info .= 'Columnas disponibles: ' . implode(', ', $columns) . '<br>';
+                $debug_info .= 'LATITUDE encontrada: ' . ($lat_col ? 'SÍ (' . $lat_col . ')' : 'NO') . '<br>';
+                $debug_info .= 'LONGITUDE encontrada: ' . ($lng_col ? 'SÍ (' . $lng_col . ')' : 'NO') . '<br>';
+                $debug_info .= 'NAME encontrada: ' . ($name_col ? 'SÍ (' . $name_col . ')' : 'NO') . '<br>';
+                $debug_info .= '<br><strong>Búsqueda detallada:</strong><br>';
+                foreach ($columns as $col) {
+                    $debug_info .= 'Columna: "' . $col . '" → Uppercase: "' . strtoupper($col) . '"<br>';
+                }
+                $debug_info .= '</div>';
+            }
+            return '<p class="error">' . __('Para mostrar en mapa, la consulta debe incluir las columnas: LATITUDE, LONGITUDE, NAME', 'oracle-widget') . '</p>' . $debug_info;
+        }
+        
+        // Add debug info for successful column detection
+        $debug_info = '';
+        if (current_user_can('manage_options')) {
+            $debug_info = '<div style="background: #d4edda; padding: 10px; margin: 10px 0; border: 1px solid #c3e6cb; font-size: 12px;">';
+            $debug_info .= '<strong>Debug - Columnas detectadas correctamente:</strong><br>';
+            $debug_info .= 'LATITUDE: ' . $lat_col . '<br>';
+            $debug_info .= 'LONGITUDE: ' . $lng_col . '<br>';
+            $debug_info .= 'NAME: ' . $name_col . '<br>';
+            $debug_info .= 'Número de filas a procesar: ' . count($data) . '<br>';
+            $debug_info .= '</div>';
+        }
+        
+        // Generate unique ID for this map
+        $map_id = 'oracle-map-' . uniqid();
+        
+        // Prepare markers data
+        $markers = array();
+        $valid_markers = 0;
+        $invalid_markers = 0;
+        
+        foreach ($data as $row) {
+            $lat = floatval($row[$lat_col]);
+            $lng = floatval($row[$lng_col]);
+            $name = esc_js($row[$name_col]);
+            
+            if ($lat != 0 && $lng != 0) {
+                $markers[] = array(
+                    'latLng' => array($lat, $lng),
+                    'name' => $name
+                );
+                $valid_markers++;
+            } else {
+                $invalid_markers++;
+            }
+        }
+        
+        // Add debug info for markers processing
+        if (current_user_can('manage_options')) {
+            $debug_info .= '<div style="background: #fff3cd; padding: 10px; margin: 10px 0; border: 1px solid #ffeaa7; font-size: 12px;">';
+            $debug_info .= '<strong>Debug - Procesamiento de marcadores:</strong><br>';
+            $debug_info .= 'Marcadores válidos: ' . $valid_markers . '<br>';
+            $debug_info .= 'Marcadores inválidos: ' . $invalid_markers . '<br>';
+            $debug_info .= 'Total de marcadores: ' . count($markers) . '<br>';
+            if (!empty($markers)) {
+                $debug_info .= 'Primer marcador: Lat=' . $markers[0]['latLng'][0] . ', Lng=' . $markers[0]['latLng'][1] . ', Name=' . $markers[0]['name'] . '<br>';
+            }
+            $debug_info .= '</div>';
+        }
+        
+        if (empty($markers)) {
+            return '<p class="error">' . __('No se encontraron coordenadas válidas para mostrar en el mapa', 'oracle-widget') . '</p>' . $debug_info;
+        }
+        
+        // Ensure the specific map region script is loaded
+        $map_script_handle = 'jvectormap-' . $map_region;
+        if (!wp_script_is($map_script_handle, 'enqueued')) {
+            wp_enqueue_script($map_script_handle, 'https://unpkg.com/jvectormap@2.0.3/jquery-jvectormap-' . $map_region . '-mill.js', array('jvectormap'), '2.0.3', true);
+        }
+        
+        $output = '<div id="' . $map_id . '" style="width: 100%; height: 400px; border: 2px solid #ccc; background-color: #f0f0f0;">
+            <div style="padding: 20px; text-align: center; color: #666;">
+                <strong>Mapa cargando...</strong><br>
+                ID del contenedor: ' . $map_id . '<br>
+                Región: ' . $map_region . '<br>
+                Marcadores: ' . count($markers) . '
+            </div>
+        </div>';
+        
+        // Add JavaScript for map initialization with error handling
+        $output .= '<script type="text/javascript">
+        jQuery(document).ready(function($) {
+            // Wait for jVectorMap to be available
+            function initMap() {
+                console.log("initMap called - checking jQuery and jVectorMap availability...");
+                
+                // Check if jQuery is available
+                if (typeof $ === "undefined" || typeof $.fn === "undefined") {
+                    console.log("jQuery not available yet, retrying in 100ms...");
+                    setTimeout(initMap, 100);
+                    return;
+                }
+                
+                console.log("$.fn.vectorMap available:", typeof $.fn.vectorMap !== "undefined");
+                
+                if (typeof $.fn.vectorMap !== "undefined") {
+                    console.log("jVectorMap is available, checking map data...");
+                    console.log("Map container:", $("#' . $map_id . '"));
+                    console.log("Map region:", "' . $map_region . '");
+                    console.log("Markers count:", ' . count($markers) . ');
+                    
+                    // Map region names to actual map data keys
+                    var mapRegionKey = "' . $map_region . '";
+                    if (mapRegionKey === "world") {
+                        mapRegionKey = "world-mill";
+                    }
+                    
+                    // Check if the specific map region is available
+                    if (typeof $.fn.vectorMap.maps !== "undefined" && $.fn.vectorMap.maps[mapRegionKey]) {
+                        console.log("Map data for region " + mapRegionKey + " is available, initializing...");
+                        console.log("Available maps:", Object.keys($.fn.vectorMap.maps));
+                        
+                        try {
+                            // Clear the loading message
+                            $("#' . $map_id . '").empty();
+                            
+                            $("#' . $map_id . '").vectorMap({
+                                map: mapRegionKey,
+                                backgroundColor: "#f8f9fa",
+                                zoomOnScroll: true,
+                                markers: ' . json_encode($markers) . ',
+                                markerStyle: {
+                                    initial: {
+                                        fill: "#ff6b6b",
+                                        stroke: "#fff",
+                                        "stroke-width": 2,
+                                        "stroke-opacity": 0.8,
+                                        r: 6
+                                    },
+                                    hover: {
+                                        fill: "#ff5252",
+                                        stroke: "#fff",
+                                        "stroke-width": 2,
+                                        "stroke-opacity": 1,
+                                        r: 8
+                                    }
+                                },
+                                onMarkerTipShow: function(e, tip, code) {
+                                    tip.html(tip.html());
+                                }
+                            });
+                            console.log("Map initialized successfully!");
+                        } catch (error) {
+                            console.error("jVectorMap error:", error);
+                            $("#' . $map_id . '").html("<div style=\'padding: 20px; text-align: center; color: #666;\'><strong>Error:</strong> Could not initialize map. Please try refreshing the page.</div>");
+                        }
+                    } else {
+                        console.log("Map data for region " + mapRegionKey + " not loaded yet, retrying in 200ms...");
+                        console.log("Available maps:", typeof $.fn.vectorMap.maps !== "undefined" ? Object.keys($.fn.vectorMap.maps) : "undefined");
+                        // Retry after a longer delay to allow map data to load
+                        setTimeout(initMap, 200);
+                    }
+                } else {
+                    console.log("$.fn.vectorMap not ready, retrying in 100ms...");
+                    // Retry after a short delay
+                    setTimeout(initMap, 100);
+                }
+            }
+            
+            // Start initialization
+            console.log("Starting map initialization for container: #' . $map_id . '");
+            console.log("Container exists:", $("#' . $map_id . '").length > 0);
+            console.log("Container HTML:", $("#' . $map_id . '").html());
+            
+            // Listen for jvectormap:loaded event or start immediately
+            $(document).on("jvectormap:loaded", function() {
+                console.log("jvectormap:loaded event received, initializing map...");
+                initMap();
+            });
+            
+            // Also try to initialize immediately in case the event was already fired
+            initMap();
+        });
+        </script>';
+        
+        return $output . $debug_info;
+    }
+}
+
+/**
+ * Enqueue jVectorMap scripts and styles
+ */
+function oracle_widget_enqueue_scripts() {
+    // Only enqueue if we're on a page that might use the widget
+    if (is_active_widget(false, false, 'oracle_database_widget') || 
+     qw3e   QA   has_shortcode(get_the_content(), 'oracle_data') ||
+        is_admin()) {
+        
+        // Try to enqueue jVectorMap from CDN with fallback
+        $jvectormap_cdn = 'https://unpkg.com/jvectormap@2.0.3/jquery-jvectormap.min.js';
+        $jvectormap_css_cdn = 'https://unpkg.com/jvectormap@2.0.3/jquery-jvectormap.css';
+        
+        wp_enqueue_script('jvectormap', $jvectormap_cdn, array('jquery'), '2.0.3', true);
+        wp_enqueue_style('jvectormap', $jvectormap_css_cdn, array(), '2.0.3');
+        
+        // Enqueue common map regions with proper dependencies
+        $common_regions = array('world-mill', 'us-aea', 'europe-mill', 'south-america-mill');
+        foreach ($common_regions as $region) {
+            $map_url = 'https://unpkg.com/jvectormap@2.0.3/jquery-jvectormap-' . $region . '.js';
+            wp_enqueue_script('jvectormap-' . $region, $map_url, array('jvectormap'), '2.0.3', true);
+        }
+        
+        // Add debug info to console and ensure proper loading
+        wp_add_inline_script('jvectormap', '
+            jQuery(document).ready(function($) {
+                console.log("jVectorMap 2.0.3 scripts enqueued successfully");
+                console.log("jQuery version:", jQuery.fn.jquery);
+                console.log("$.fn.vectorMap available:", typeof $.fn.vectorMap !== "undefined");
+                console.log("jvm global object available:", typeof jvm !== "undefined");
+                
+                // Try to manually define jvm if it doesn\'t exist
+                if (typeof jvm === "undefined" && typeof $.fn.vectorMap !== "undefined") {
+                    console.log("Attempting to manually define jvm global object...");
+                    window.jvm = {};
+                    console.log("jvm manually defined:", typeof jvm !== "undefined");
+                }
+                
+                // Check if map data is available
+                if (typeof $.fn.vectorMap !== "undefined") {
+                    console.log("Checking available map regions...");
+                    if (typeof $.fn.vectorMap.maps !== "undefined") {
+                        console.log("Available maps:", Object.keys($.fn.vectorMap.maps));
+                    } else {
+                        console.log("$.fn.vectorMap.maps is not defined");
+                    }
+                }
+                
+                // Function to check if all required maps are loaded
+                function checkMapsLoaded() {
+                    if (typeof $.fn.vectorMap !== "undefined" && typeof $.fn.vectorMap.maps !== "undefined") {
+                        var requiredMaps = ["world-mill", "us-aea", "europe-mill", "south-america-mill"];
+                        var loadedMaps = Object.keys($.fn.vectorMap.maps);
+                        var allLoaded = true;
+                        
+                        for (var i = 0; i < requiredMaps.length; i++) {
+                            if (loadedMaps.indexOf(requiredMaps[i]) === -1) {
+                                allLoaded = false;
+                                break;
+                            }
+                        }
+                        
+                        if (allLoaded) {
+                            console.log("All required maps loaded successfully:", loadedMaps);
+                            $(document).trigger("jvectormap:loaded");
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+                
+                // Check immediately and then retry
+                if (!checkMapsLoaded()) {
+                    var checkInterval = setInterval(function() {
+                        if (checkMapsLoaded()) {
+                            clearInterval(checkInterval);
+                        }
+                    }, 100);
+                    
+                    // Timeout after 10 seconds
+                    setTimeout(function() {
+                        clearInterval(checkInterval);
+                        console.log("Timeout reached, triggering jvectormap:loaded anyway");
+                        $(document).trigger("jvectormap:loaded");
+                    }, 10000);
+                }
+            });
+        ', 'after');
+    }
+}
+add_action('wp_enqueue_scripts', 'oracle_widget_enqueue_scripts');
+
+/**
+ * Register the widget
+ */
+function register_oracle_database_widget() {
+    register_widget('Oracle_Database_Widget');
+}
+add_action('widgets_init', 'register_oracle_database_widget');
+
+/**
+ * Shortcode for Elementor and other page builders
+ * Usage: [oracle_data connection="connection_id" query="query_id" limit="10" order_by="column1, column2 DESC" display_type="both" map_region="world"]
+ */
+function oracle_data_shortcode($atts) {
+    $atts = shortcode_atts(array(
+        'connection' => '',
+        'query' => '',
+        'limit' => '10',
+        'order_by' => '',
+        'display_type' => 'table',
+        'map_region' => 'world'
+    ), $atts, 'oracle_data');
+    
+    // Create instance array for the widget method
+    $instance = array(
+        'connection_id' => $atts['connection'],
+        'query_id' => $atts['query'],
+        'limit' => $atts['limit'],
+        'order_by' => $atts['order_by'],
+        'display_type' => $atts['display_type'],
+        'map_region' => $atts['map_region']
+    );
+    
+    // Create widget instance and get data
+    $widget = new Oracle_Database_Widget();
+    $content = $widget->get_oracle_data($instance);
+    
+    if ($content) {
+        return '<div class="oracle-widget-content">' . $content . '</div>';
+    } else {
+        return '<p>' . __('No hay datos disponibles', 'oracle-widget') . '</p>';
+    }
+}
+add_shortcode('oracle_data', 'oracle_data_shortcode');
+
+/**
+ * Admin Menu Setup
+ */
+function oracle_widget_admin_menu() {
+    add_options_page(
+        __('Configuración del Widget Oracle', 'oracle-widget'),
+        __('Widget Oracle', 'oracle-widget'),
+        'manage_options',
+        'oracle-widget-settings',
+        'oracle_widget_settings_page'
+    );
+}
+add_action('admin_menu', 'oracle_widget_admin_menu');
+
+/**
+ * Settings Page
+ */
+function oracle_widget_settings_page() {
+    if (isset($_POST['submit_connection'])) {
+        oracle_widget_save_connection();
+    } elseif (isset($_POST['submit_query'])) {
+        oracle_widget_save_query();
+    } elseif (isset($_POST['update_connection'])) {
+        oracle_widget_update_connection();
+    } elseif (isset($_POST['update_query'])) {
+        oracle_widget_update_query();
+    } elseif (isset($_GET['delete_connection'])) {
+        oracle_widget_delete_connection($_GET['delete_connection']);
+    } elseif (isset($_GET['delete_query'])) {
+        oracle_widget_delete_query($_GET['delete_query']);
+    }
+    
+    $connections = get_option('oracle_widget_connections', array());
+    $queries = get_option('oracle_widget_queries', array());
+    
+    // Check if we're editing
+    $editing_connection = isset($_GET['edit_connection']) ? $_GET['edit_connection'] : '';
+    $editing_query = isset($_GET['edit_query']) ? $_GET['edit_query'] : '';
+    ?>
+    <div class="wrap">
+        <h1><?php _e('Configuración del Widget Oracle', 'oracle-widget'); ?></h1>
+        
+        <h2 class="nav-tab-wrapper">
+            <a href="#connections" class="nav-tab nav-tab-active"><?php _e('Conexiones de Base de Datos', 'oracle-widget'); ?></a>
+            <a href="#queries" class="nav-tab"><?php _e('Consultas SQL', 'oracle-widget'); ?></a>
+        </h2>
+        
+        <div id="connections" class="tab-content">
+            <?php if ($editing_connection && isset($connections[$editing_connection])): ?>
+                <h3><?php _e('Editar Conexión', 'oracle-widget'); ?></h3>
+                <form method="post" action="">
+                    <input type="hidden" name="connection_id" value="<?php echo esc_attr($editing_connection); ?>">
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row"><?php _e('Nombre de Conexión', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="connection_name" class="regular-text" value="<?php echo esc_attr($connections[$editing_connection]['name']); ?>" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Servidor', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="host" value="<?php echo esc_attr($connections[$editing_connection]['host']); ?>" class="regular-text" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Puerto', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="port" value="<?php echo esc_attr($connections[$editing_connection]['port']); ?>" class="regular-text" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Nombre del Servicio', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="service_name" value="<?php echo esc_attr($connections[$editing_connection]['service_name']); ?>" class="regular-text" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Usuario', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="username" value="<?php echo esc_attr($connections[$editing_connection]['username']); ?>" class="regular-text" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Contraseña', 'oracle-widget'); ?></th>
+                            <td>
+                                <input type="password" name="password" class="regular-text" placeholder="<?php _e('Dejar en blanco para mantener la contraseña actual', 'oracle-widget'); ?>">
+                                <p class="description"><?php _e('Dejar en blanco para mantener la contraseña actual', 'oracle-widget'); ?></p>
+                            </td>
+                        </tr>
+                    </table>
+                    <p class="submit">
+                        <input type="submit" name="update_connection" class="button-primary" value="<?php _e('Actualizar Conexión', 'oracle-widget'); ?>">
+                        <a href="?page=oracle-widget-settings" class="button"><?php _e('Cancelar', 'oracle-widget'); ?></a>
+                    </p>
+                </form>
+            <?php else: ?>
+                <h3><?php _e('Agregar Nueva Conexión', 'oracle-widget'); ?></h3>
+                <form method="post" action="">
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row"><?php _e('Nombre de Conexión', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="connection_name" class="regular-text" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Servidor', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="host" value="localhost" class="regular-text" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Puerto', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="port" value="1521" class="regular-text" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Nombre del Servicio', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="service_name" class="regular-text" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Usuario', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="username" class="regular-text" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Contraseña', 'oracle-widget'); ?></th>
+                            <td><input type="password" name="password" class="regular-text" required></td>
+                        </tr>
+                    </table>
+                    <p class="submit">
+                        <input type="submit" name="submit_connection" class="button-primary" value="<?php _e('Guardar Conexión', 'oracle-widget'); ?>">
+                    </p>
+                </form>
+            <?php endif; ?>
+            
+            <h3><?php _e('Conexiones Existentes', 'oracle-widget'); ?></h3>
+            <?php if (empty($connections)): ?>
+                <p><?php _e('Aún no hay conexiones configuradas.', 'oracle-widget'); ?></p>
+            <?php else: ?>
+                <table class="wp-list-table widefat fixed striped">
+                    <thead>
+                        <tr>
+                            <th><?php _e('Nombre', 'oracle-widget'); ?></th>
+                            <th><?php _e('Servidor', 'oracle-widget'); ?></th>
+                            <th><?php _e('Servicio', 'oracle-widget'); ?></th>
+                            <th><?php _e('Usuario', 'oracle-widget'); ?></th>
+                            <th><?php _e('Acciones', 'oracle-widget'); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($connections as $id => $connection): ?>
+                            <tr>
+                                <td><?php echo esc_html($connection['name']); ?></td>
+                                <td><?php echo esc_html($connection['host']); ?></td>
+                                <td><?php echo esc_html($connection['service_name']); ?></td>
+                                <td><?php echo esc_html($connection['username']); ?></td>
+                                <td>
+                                    <a href="?page=oracle-widget-settings&edit_connection=<?php echo $id; ?>" 
+                                       class="button button-small"><?php _e('Editar', 'oracle-widget'); ?></a>
+                                    <a href="?page=oracle-widget-settings&delete_connection=<?php echo $id; ?>" 
+                                       onclick="return confirm('<?php _e('¿Está seguro?', 'oracle-widget'); ?>')"
+                                       class="button button-small"><?php _e('Eliminar', 'oracle-widget'); ?></a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
+        
+        <div id="queries" class="tab-content" style="display:none;">
+            <?php if ($editing_query && isset($queries[$editing_query])): ?>
+                <h3><?php _e('Editar Consulta', 'oracle-widget'); ?></h3>
+                <form method="post" action="">
+                    <input type="hidden" name="query_id" value="<?php echo esc_attr($editing_query); ?>">
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row"><?php _e('Nombre de Consulta', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="query_name" class="regular-text" value="<?php echo esc_attr($queries[$editing_query]['name']); ?>" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Consulta SQL', 'oracle-widget'); ?></th>
+                            <td>
+                                <textarea name="sql_query" rows="6" cols="50" class="large-text" required><?php echo esc_textarea($queries[$editing_query]['query']); ?></textarea>
+                                <p class="description"><?php _e('Use :limit como marcador de posición para el límite de filas', 'oracle-widget'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Descripción', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="query_description" class="regular-text" value="<?php echo esc_attr($queries[$editing_query]['description']); ?>"></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Orden Predeterminado', 'oracle-widget'); ?></th>
+                            <td>
+                                <input type="text" name="default_order" class="regular-text" value="<?php echo esc_attr($queries[$editing_query]['default_order'] ?? ''); ?>" placeholder="<?php _e('columna1, columna2 DESC', 'oracle-widget'); ?>">
+                                <p class="description"><?php _e('Orden predeterminado para esta consulta (opcional)', 'oracle-widget'); ?></p>
+                            </td>
+                        </tr>
+                    </table>
+                    <p class="submit">
+                        <input type="submit" name="update_query" class="button-primary" value="<?php _e('Actualizar Consulta', 'oracle-widget'); ?>">
+                        <a href="?page=oracle-widget-settings" class="button"><?php _e('Cancelar', 'oracle-widget'); ?></a>
+                    </p>
+                </form>
+            <?php else: ?>
+                <h3><?php _e('Agregar Nueva Consulta', 'oracle-widget'); ?></h3>
+                <form method="post" action="">
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row"><?php _e('Nombre de Consulta', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="query_name" class="regular-text" required></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Consulta SQL', 'oracle-widget'); ?></th>
+                            <td>
+                                <textarea name="sql_query" rows="6" cols="50" class="large-text" required></textarea>
+                                <p class="description"><?php _e('Use :limit como marcador de posición para el límite de filas', 'oracle-widget'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Descripción', 'oracle-widget'); ?></th>
+                            <td><input type="text" name="query_description" class="regular-text"></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Orden Predeterminado', 'oracle-widget'); ?></th>
+                            <td>
+                                <input type="text" name="default_order" class="regular-text" placeholder="<?php _e('columna1, columna2 DESC', 'oracle-widget'); ?>">
+                                <p class="description"><?php _e('Orden predeterminado para esta consulta (opcional)', 'oracle-widget'); ?></p>
+                            </td>
+                        </tr>
+                    </table>
+                    <p class="submit">
+                        <input type="submit" name="submit_query" class="button-primary" value="<?php _e('Guardar Consulta', 'oracle-widget'); ?>">
+                    </p>
+                </form>
+            <?php endif; ?>
+            
+            <h3><?php _e('Consultas Existentes', 'oracle-widget'); ?></h3>
+            <?php if (empty($queries)): ?>
+                <p><?php _e('Aún no hay consultas configuradas.', 'oracle-widget'); ?></p>
+            <?php else: ?>
+                <table class="wp-list-table widefat fixed striped">
+                    <thead>
+                        <tr>
+                            <th><?php _e('Nombre', 'oracle-widget'); ?></th>
+                            <th><?php _e('Descripción', 'oracle-widget'); ?></th>
+                            <th><?php _e('Consulta', 'oracle-widget'); ?></th>
+                            <th><?php _e('Orden Predeterminado', 'oracle-widget'); ?></th>
+                            <th><?php _e('Acciones', 'oracle-widget'); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($queries as $id => $query): ?>
+                            <tr>
+                                <td><?php echo esc_html($query['name']); ?></td>
+                                <td><?php echo esc_html($query['description']); ?></td>
+                                <td><code><?php echo esc_html(substr($query['query'], 0, 100)) . (strlen($query['query']) > 100 ? '...' : ''); ?></code></td>
+                                <td><?php echo esc_html($query['default_order'] ?? ''); ?></td>
+                                <td>
+                                    <a href="?page=oracle-widget-settings&edit_query=<?php echo $id; ?>" 
+                                       class="button button-small"><?php _e('Editar', 'oracle-widget'); ?></a>
+                                    <a href="?page=oracle-widget-settings&delete_query=<?php echo $id; ?>" 
+                                       onclick="return confirm('<?php _e('¿Está seguro?', 'oracle-widget'); ?>')"
+                                       class="button button-small"><?php _e('Eliminar', 'oracle-widget'); ?></a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
+    </div>
+    
+    <script>
+    jQuery(document).ready(function($) {
+        $('.nav-tab').click(function(e) {
+            e.preventDefault();
+            $('.nav-tab').removeClass('nav-tab-active');
+            $(this).addClass('nav-tab-active');
+            $('.tab-content').hide();
+            $($(this).attr('href')).show();
+        });
+    });
+    </script>
+    <?php
+}
+
+/**
+ * Save Connection
+ */
+function oracle_widget_save_connection() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    
+    $connections = get_option('oracle_widget_connections', array());
+    $id = sanitize_title($_POST['connection_name']);
+    
+    $connections[$id] = array(
+        'name' => sanitize_text_field($_POST['connection_name']),
+        'host' => sanitize_text_field($_POST['host']),
+        'port' => sanitize_text_field($_POST['port']),
+        'service_name' => sanitize_text_field($_POST['service_name']),
+        'username' => sanitize_text_field($_POST['username']),
+        'password' => $_POST['password'] // Store as-is for database connection
+    );
+    
+    update_option('oracle_widget_connections', $connections);
+    
+    echo '<div class="notice notice-success"><p>' . __('Conexión guardada exitosamente!', 'oracle-widget') . '</p></div>';
+}
+
+/**
+ * Update Connection
+ */
+function oracle_widget_update_connection() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    
+    $connections = get_option('oracle_widget_connections', array());
+    $id = sanitize_text_field($_POST['connection_id']);
+    
+    if (!isset($connections[$id])) {
+        echo '<div class="notice notice-error"><p>' . __('¡Conexión no encontrada!', 'oracle-widget') . '</p></div>';
+        return;
+    }
+    
+    // Keep existing password if new one is not provided
+    $password = !empty($_POST['password']) ? $_POST['password'] : $connections[$id]['password'];
+    
+    $connections[$id] = array(
+        'name' => sanitize_text_field($_POST['connection_name']),
+        'host' => sanitize_text_field($_POST['host']),
+        'port' => sanitize_text_field($_POST['port']),
+        'service_name' => sanitize_text_field($_POST['service_name']),
+        'username' => sanitize_text_field($_POST['username']),
+        'password' => $password
+    );
+    
+    update_option('oracle_widget_connections', $connections);
+    
+    echo '<div class="notice notice-success"><p>' . __('Conexión actualizada exitosamente!', 'oracle-widget') . '</p></div>';
+}
+
+/**
+ * Save Query
+ */
+function oracle_widget_save_query() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    
+    $queries = get_option('oracle_widget_queries', array());
+    $id = sanitize_title($_POST['query_name']);
+    
+    $queries[$id] = array(
+        'name' => sanitize_text_field($_POST['query_name']),
+        'description' => sanitize_text_field($_POST['query_description']),
+        'query' => $_POST['sql_query'], // Store as-is for SQL execution
+        'default_order' => sanitize_text_field($_POST['default_order'])
+    );
+    
+    update_option('oracle_widget_queries', $queries);
+    
+    echo '<div class="notice notice-success"><p>' . __('Consulta guardada exitosamente!', 'oracle-widget') . '</p></div>';
+}
+
+/**
+ * Update Query
+ */
+function oracle_widget_update_query() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    
+    $queries = get_option('oracle_widget_queries', array());
+    $id = sanitize_text_field($_POST['query_id']);
+    
+    if (!isset($queries[$id])) {
+        echo '<div class="notice notice-error"><p>' . __('¡Consulta no encontrada!', 'oracle-widget') . '</p></div>';
+        return;
+    }
+    
+    $queries[$id] = array(
+        'name' => sanitize_text_field($_POST['query_name']),
+        'description' => sanitize_text_field($_POST['query_description']),
+        'query' => $_POST['sql_query'], // Store as-is for SQL execution
+        'default_order' => sanitize_text_field($_POST['default_order'])
+    );
+    
+    update_option('oracle_widget_queries', $queries);
+    
+    echo '<div class="notice notice-success"><p>' . __('Consulta actualizada exitosamente!', 'oracle-widget') . '</p></div>';
+}
+
+/**
+ * Delete Connection
+ */
+function oracle_widget_delete_connection($id) {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    
+    $connections = get_option('oracle_widget_connections', array());
+    unset($connections[$id]);
+    update_option('oracle_widget_connections', $connections);
+    
+    echo '<div class="notice notice-success"><p>' . __('Conexión eliminada exitosamente!', 'oracle-widget') . '</p></div>';
+}
+
+/**
+ * Delete Query
+ */
+function oracle_widget_delete_query($id) {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    
+    $queries = get_option('oracle_widget_queries', array());
+    unset($queries[$id]);
+    update_option('oracle_widget_queries', $queries);
+    
+    echo '<div class="notice notice-success"><p>' . __('Consulta eliminada exitosamente!', 'oracle-widget') . '</p></div>';
+}
+
+/**
+ * Add CSS styles for the widget
+ */
+function oracle_widget_styles() {
+    ?>
+    <style>
+        .oracle-widget-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .oracle-widget-table th,
+        .oracle-widget-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        
+        .oracle-widget-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        
+        .oracle-widget-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        .oracle-widget-table tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .oracle-widget-content .error {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        
+        /* jVectorMap Styles */
+        .oracle-widget-content .jvectormap-container {
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .oracle-widget-content .jvectormap-zoomin,
+        .oracle-widget-content .jvectormap-zoomout {
+            background-color: #007cba;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-size: 16px;
+            height: 30px;
+            width: 30px;
+            line-height: 30px;
+            text-align: center;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        .oracle-widget-content .jvectormap-zoomin:hover,
+        .oracle-widget-content .jvectormap-zoomout:hover {
+            background-color: #005a87;
+        }
+        
+        .oracle-widget-content .jvectormap-zoomout {
+            top: 40px;
+        }
+        
+        /* Map container responsive */
+        .oracle-widget-content .map-container {
+            position: relative;
+            width: 100%;
+            height: 400px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .oracle-widget-table {
+                font-size: 12px;
+            }
+            
+            .oracle-widget-table th,
+            .oracle-widget-table td {
+                padding: 6px;
+            }
+            
+            .oracle-widget-content .map-container {
+                height: 300px;
+            }
+        }
+        
+        /* Both table and map layout */
+        .oracle-widget-content .table-map-container {
+            margin-bottom: 30px;
+        }
+        
+        .oracle-widget-content .map-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #f0f0f0;
+        }
+        
+        .oracle-widget-content .map-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .oracle-widget-content .table-section {
+            margin-bottom: 20px;
+        }
+    </style>
+    <?php
+}
+add_action('wp_head', 'oracle_widget_styles');
+
+/**
+ * Plugin activation hook
+ */
+function oracle_widget_activate() {
+    // Check if OCI8 extension is available
+    if (!extension_loaded('oci8')) {
+        deactivate_plugins(plugin_basename(__FILE__));
+        wp_die(__('Este plugin requiere que la extensión Oracle OCI8 de PHP esté instalada.', 'oracle-widget'));
+    }
+}
+register_activation_hook(__FILE__, 'oracle_widget_activate');
+
+/**
+ * Plugin deactivation hook
+ */
+function oracle_widget_deactivate() {
+    // Clean up if needed
+}
+register_deactivation_hook(__FILE__, 'oracle_widget_deactivate'); 
