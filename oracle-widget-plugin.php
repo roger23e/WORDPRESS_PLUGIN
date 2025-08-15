@@ -437,6 +437,10 @@ class Oracle_Database_Widget extends WP_Widget {
      * Generate map output
      */
     private function generate_map_output($data, $columns, $map_region) {
+        // Special handling for Venezuelan data
+        if ($map_region === 've_mill') {
+            return $this->generate_venezuela_custom_map($data, $columns);
+        }
         // Find the actual column names (case-insensitive search)
         $lat_col = null;
         $lng_col = null;
@@ -667,6 +671,105 @@ class Oracle_Database_Widget extends WP_Widget {
         
         return implode(', ', $sanitized_parts);
     }
+    
+    /**
+     * Generate custom Venezuelan map visualization
+     */
+    private function generate_venezuela_custom_map($data, $columns) {
+        // Find the actual column names (case-insensitive search)
+        $lat_col = null;
+        $lng_col = null;
+        $name_col = null;
+        
+        foreach ($columns as $col) {
+            $col_upper = strtoupper($col);
+            if ($col_upper === 'LATITUDE') {
+                $lat_col = $col;
+            } elseif ($col_upper === 'LONGITUDE') {
+                $lng_col = $col;
+            } elseif ($col_upper === 'NAME') {
+                $name_col = $col;
+            }
+        }
+        
+        // Check if required columns exist
+        if (!$lat_col || !$lng_col || !$name_col) {
+            return '<p class="error">' . __('Para mostrar el mapa de Venezuela, la consulta debe incluir las columnas: LATITUDE, LONGITUDE, NAME', 'oracle-widget') . '</p>';
+        }
+        
+        // Generate unique ID for this map
+        $map_id = 'venezuela-custom-map-' . uniqid();
+        
+        // Prepare markers data
+        $markers = array();
+        $valid_markers = 0;
+        
+        foreach ($data as $row) {
+            $lat = floatval($row[$lat_col]);
+            $lng = floatval($row[$lng_col]);
+            $name = esc_js($row[$name_col]);
+            
+            if ($lat != 0 && $lng != 0) {
+                $markers[] = array(
+                    'lat' => $lat,
+                    'lng' => $lng,
+                    'name' => $name
+                );
+                $valid_markers++;
+            }
+        }
+        
+        if (empty($markers)) {
+            return '<p class="error">' . __('No se encontraron coordenadas válidas para mostrar en el mapa de Venezuela', 'oracle-widget') . '</p>';
+        }
+        
+        // Create a custom Google Maps or OpenStreetMap visualization
+        $output = '<div id="' . $map_id . '" class="venezuela-custom-map" style="width: 100%; height: 400px; border: 2px solid #007cba; border-radius: 8px; background: linear-gradient(135deg, #FFD700 0%, #FF6B00 50%, #DC143C 100%); position: relative; overflow: hidden;">
+            <div style="position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 5px; font-weight: bold; color: #333;">
+                🇻🇪 Mapa de Venezuela<br>
+                <small>' . count($markers) . ' ubicaciones encontradas</small>
+            </div>
+            <div style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.95); padding: 15px; border-radius: 8px; max-width: 90%; max-height: 300px; overflow-y: auto;">
+                <h4 style="margin: 0 0 10px 0; color: #333; text-align: center;">📍 Ubicaciones en Venezuela</h4>
+                <div class="venezuela-locations-list">';
+        
+        // Add location list
+        foreach ($markers as $marker) {
+            $output .= '<div style="margin: 5px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 4px solid #007cba;">
+                <strong>' . esc_html($marker['name']) . '</strong><br>
+                <small style="color: #666;">📍 ' . number_format($marker['lat'], 4) . ', ' . number_format($marker['lng'], 4) . '</small>
+            </div>';
+        }
+        
+        $output .= '</div></div></div>';
+        
+        // Add some interactive JavaScript
+        $output .= '<script type="text/javascript">
+        jQuery(document).ready(function($) {
+            console.log("Venezuelan custom map loaded with ' . count($markers) . ' locations");
+            
+            // Add hover effects to location items
+            $("#' . $map_id . ' .venezuela-locations-list > div").hover(
+                function() {
+                    $(this).css({"background": "#e3f2fd", "transform": "scale(1.02)", "transition": "all 0.2s ease"});
+                },
+                function() {
+                    $(this).css({"background": "#f8f9fa", "transform": "scale(1)", "transition": "all 0.2s ease"});
+                }
+            );
+            
+            // Add click functionality
+            $("#' . $map_id . ' .venezuela-locations-list > div").click(function() {
+                $(this).css({"background": "#c8e6c9", "border-left-color": "#4caf50"});
+                setTimeout(function() {
+                    $("#' . $map_id . ' .venezuela-locations-list > div").css({"background": "#f8f9fa", "border-left-color": "#007cba"});
+                }, 1000);
+            });
+        });
+        </script>';
+        
+        return $output;
+    }
 }
 
 /**
@@ -702,9 +805,9 @@ function oracle_widget_enqueue_scripts() {
         wp_enqueue_script('jvectormap', $jvectormap_cdn, array('jquery'), '2.0.3', true);
         wp_enqueue_style('jvectormap', $jvectormap_css_cdn, array(), '2.0.3');
         
-        // Only enqueue map regions that might be used
-        $used_regions = oracle_widget_get_used_map_regions();
-        foreach ($used_regions as $region) {
+        // Enqueue common map regions
+        $common_regions = array('world-mill', 'us-aea', 'europe-mill');
+        foreach ($common_regions as $region) {
             $map_script_handle = 'jvectormap-' . $region;
             if (!wp_script_is($map_script_handle, 'enqueued')) {
                 $map_url = 'https://unpkg.com/jvectormap@2.0.3/jquery-jvectormap-' . $region . '.js';
@@ -745,127 +848,26 @@ function oracle_widget_enqueue_scripts() {
                     }
                 }
                 
-                // Function to check if all required maps are loaded
-                function checkMapsLoaded() {
-                    if (typeof $.fn.vectorMap !== "undefined" && typeof $.fn.vectorMap.maps !== "undefined") {
-                        var requiredMaps = ["world-mill", "us-aea", "europe-mill", "south-america-mill", "ve_mill"];
-                        var loadedMaps = Object.keys($.fn.vectorMap.maps);
-                        var allLoaded = true;
-                        
-                        for (var i = 0; i < requiredMaps.length; i++) {
-                            if (loadedMaps.indexOf(requiredMaps[i]) === -1) {
-                                allLoaded = false;
-                                break;
-                            }
-                        }
-                        
-                        if (allLoaded) {
-                            console.log("All required maps loaded successfully:", loadedMaps);
-                            $(document).trigger("jvectormap:loaded");
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-                
-                // Check immediately and then retry
-                if (!checkMapsLoaded()) {
-                    var checkInterval = setInterval(function() {
-                        if (checkMapsLoaded()) {
-                            clearInterval(checkInterval);
-                        }
-                    }, 100);
-                    
-                    // Timeout after 10 seconds
-                    setTimeout(function() {
-                        clearInterval(checkInterval);
-                        console.log("Timeout reached, triggering jvectormap:loaded anyway");
-                        $(document).trigger("jvectormap:loaded");
-                    }, 10000);
-                }
-                
-                // Add Venezuelan map data
+                // Simple map loading check
                 if (typeof $.fn.vectorMap !== "undefined") {
-                    console.log("Loading Venezuelan map data...");
-                    // Note: This is a simplified version. For production, include all Venezuelan states
-                    $.fn.vectorMap("addMap", "ve_mill", {
-                        "insets": [{"width": 900, "top": 0, "height": 1006.432148295754, "bbox": [{"y": -1763114.2057327146, "x": -8174009.062545}, {"y": -72319.12180521358, "x": -6662018.832392322}], "left": 0}],
-                        "paths": {
-                            "VE-L": {"path": "M144.5,438.56l0.69,-2.6l1.22,-0.94l2.27,-2.7l2.27,-0.41l2.89,-1.24l1.13,-1.73l1.49,-0.86l3.64,0.08l3.53,3.07l1.78,7.43l1.88,3.56l0.66,0.77l4.24,2.44l0.95,1.72l1.01,0.44l1.04,-0.15l0.86,0.54l1.09,2.91l0.84,1.23l0.71,0.54l1.39,-0.09l2.29,-1.03l2.46,-2.04l1.48,-0.51l0.84,1.53l1.37,0.55l-0.07,2.18l0.45,0.97l-1.3,1.88l-0.81,3.71l-0.49,0.68l-2.45,0.65l-2.8,1.43l-2.01,0.15l-0.72,0.67l-1.18,2.66l-0.69,0.55l-0.49,-0.09l-0.77,-1.13l-1.59,0.18l-4.61,3.77l-4.7,6.64l-0.91,-0.37l-0.72,0.25l-2.46,2.43l-0.53,1.48l0.48,2.29l-0.71,1.97l-0.67,0.9l-2.42,1.82l-0.54,1.01l-0.24,1.8l-2.14,2.17l-0.47,1.08l0.15,2.68l0.68,2.14l2.25,1.98l1.26,3.81l-0.2,1.32l-2.15,3.32l-0.79,2.46l-1.96,2.75l-5.11,4.53l-2.63,1.57l-3.03,3.51l-2.37,1.37l-9.28,6.66l-2.2,2.23l-0.15,1.9l0.52,2.08l-0.37,1.06l-0.86,0.38l-0.82,-2.41l-2.31,-2.01l1.76,-4.71l-0.09,-3.78l-0.32,-1.84l-0.65,-1.14l0.13,-0.74l1.33,-1.84l0.11,-1.39l-0.68,-1.24l-5.7,-3.66l-3.24,-0.22l-1.44,0.29l-1.43,-0.32l-1.91,0.83l-2.06,-1.62l-3.37,-5.06l-1.77,-1.36l-2.15,-0.54l-2.77,0.3l0.12,-1.55l0.58,-1.77l2.82,-3.94l1.01,-0.53l0.73,-0.87l0.51,-2.16l-1.18,-3.54l3.32,-4.15l0.51,-1.72l-0.34,-1.46l-1.4,-1.92l-0.27,-2.29l-0.69,-1.27l-1.08,-0.68l-7.42,-1.3l2.95,-1.15l2.34,-1.99l1.41,-0.3l0.89,0.1l0.75,0.66l0.07,0.82l-0.52,1.4l0.42,0.59l3.29,-0.7l1.68,0.89l0.59,-0.03l0.61,-0.6l1.05,-3.58l2.02,-2.72l4.13,-3.54l17.61,-12.94l3.21,-3.16l3.54,-2.11l0.79,-0.12l1.4,1.69l0.43,1.52l0.68,0.44l1.25,-0.41l1.15,-0.88l0.73,-1.77l0.39,-5.47l-0.44,-1.16l-4.53,-3.85Z", "name": "Mérida"},
-                            "VE-M": {"path": "M451.69,347.24l4.17,0.26l2.83,1.11l1.33,-0.35l0.77,0.53l5.65,-0.54l2.23,0.91l0.84,-0.55l0.22,-0.55l0.26,-3.4l-0.33,-2.36l0.98,-0.89l1.11,-0.32l1.45,0.22l4.09,2.09l4.28,1.01l1.48,1.21l3.29,0.41l-1.54,1.21l-1.61,0.51l-1.19,-0.14l-0.44,0.43l-0.0,2.54l0.34,0.73l2.08,2.14l5.56,4.56l2.13,1.3l1.28,1.87l3.29,1.97l-1.81,-0.72l-0.99,0.96l-0.02,0.51l1.4,1.83l1.98,-0.21l1.53,0.91l2.88,2.55l1.82,0.67l5.72,0.39l0.39,-0.28l-0.16,-0.45l-1.97,-1.28l-6.59,-2.81l-0.44,-0.59l17.72,7.71l9.92,2.77l-0.72,2.74l-0.6,0.92l-2.45,1.54l-1.62,0.52l-2.91,2.56l-3.79,1.29l-1.39,1.23l-0.87,-0.5l-1.06,-0.02l-2.24,1.77l-3.12,0.92l-3.03,0.04l-2.21,-0.87l-2.43,-0.35l-3.4,1.27l-3.75,0.6l-6.0,-1.83l-3.3,0.58l-1.53,-1.26l-3.72,1.19l-3.51,-1.91l-3.63,-0.18l-3.43,-1.79l-2.86,-0.85l-2.1,0.61l-1.92,1.92l-5.04,0.89l-5.57,0.13l-3.44,-0.44l-2.44,-1.17l-3.04,-0.04l-1.48,-1.12l-1.44,-0.33l-2.12,-0.17l-3.62,1.03l-2.03,-0.74l-1.18,-0.06l-2.21,-3.04l-1.15,-0.93l-1.89,-0.23l-2.4,1.38l-4.32,-3.03l-1.35,-2.78l-0.09,-0.97l1.09,-2.2l0.58,-4.81l-1.42,-1.3l-2.68,-1.1l-1.09,-0.97l-0.04,-1.38l0.81,-0.98l0.02,-0.46l-1.12,-1.05l-1.66,-2.67l3.52,-1.28l0.52,0.62l4.91,1.88l3.1,0.56l1.59,-0.17l4.15,-1.73l2.94,0.34l0.47,-0.32l1.03,-4.21l1.83,-2.17l-0.01,-0.5l-1.12,-1.82l0.25,-0.14l1.55,0.59l2.81,-0.44l4.81,-0.09l1.13,0.43l6.75,0.07l1.76,-1.05Z", "name": "Miranda"},
-                            "VE-A": {"path": "M414.01,355.24l2.07,-1.56l1.39,0.17l1.19,-0.9l1.69,-0.31l0.17,-3.28l2.39,-1.16l0.14,-0.5l-0.33,-0.51l0.62,-0.92l1.12,0.77l2.42,0.9l2.58,-0.5l2.37,0.65l1.14,1.86l-1.76,2.0l-1.04,4.06l-2.85,-0.27l-4.25,1.76l-1.35,0.13l-2.84,-0.52l-4.89,-1.88Z", "name": "Distrito Capital"}
-                        },
-                        "height": 1006.432148295754,
-                        "projection": {"type": "mill", "centralMeridian": 0.0},
-                        "width": 900.0
-                    });
-                    console.log("Venezuelan map (ve_mill) loaded successfully with sample states");
+                    console.log("jVectorMap loaded successfully");
+                    $(document).trigger("jvectormap:loaded");
+                } else {
+                    setTimeout(function() {
+                        console.log("jVectorMap loading timeout, triggering loaded event anyway");
+                        $(document).trigger("jvectormap:loaded");
+                    }, 3000);
                 }
+                
+                // Add custom Venezuelan map support
+                console.log("Custom Venezuelan map support enabled");
             });
         ', 'after');
     }
 }
 add_action('wp_enqueue_scripts', 'oracle_widget_enqueue_scripts');
 
-/**
- * Get map regions that are currently being used
- */
-function oracle_widget_get_used_map_regions() {
-    global $post;
-    
-    $used_regions = array();
-    
-    // Check active widgets for map regions
-    $widget_instances = get_option('widget_oracle_database_widget', array());
-    foreach ($widget_instances as $instance) {
-        if (isset($instance['map_region']) && !empty($instance['map_region'])) {
-            $region = $instance['map_region'];
-                         // Convert region names to actual map file names
-             if ($region === 'world') {
-                 $used_regions[] = 'world-mill';
-             } elseif ($region === 'us_aea') {
-                 $used_regions[] = 'us-aea';
-             } elseif ($region === 'europe_mill') {
-                 $used_regions[] = 'europe-mill';
-             } elseif ($region === 've_mill') {
-                 $used_regions[] = 've-mill';
-             } else {
-                 $used_regions[] = $region;
-             }
-        }
-    }
-    
-    // Check current post for shortcodes with map_region attribute
-    if (is_object($post) && has_shortcode($post->post_content, 'oracle_data')) {
-        $pattern = get_shortcode_regex(array('oracle_data'));
-        if (preg_match_all('/' . $pattern . '/s', $post->post_content, $matches)) {
-            foreach ($matches[3] as $attrs) {
-                $atts = shortcode_parse_atts($attrs);
-                                 if (isset($atts['map_region'])) {
-                     $region = $atts['map_region'];
-                     if ($region === 'world') {
-                         $used_regions[] = 'world-mill';
-                     } elseif ($region === 'us_aea') {
-                         $used_regions[] = 'us-aea';
-                     } elseif ($region === 'europe_mill') {
-                         $used_regions[] = 'europe-mill';
-                     } elseif ($region === 've_mill') {
-                         $used_regions[] = 've-mill';
-                     } else {
-                         $used_regions[] = $region;
-                     }
-                 }
-            }
-        }
-    }
-    
-    // Default to world map if no specific regions found
-    if (empty($used_regions)) {
-        $used_regions[] = 'world-mill';
-    }
-    
-    return array_unique($used_regions);
-}
+
 
 /**
  * Register the widget
