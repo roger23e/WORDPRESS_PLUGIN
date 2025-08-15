@@ -1,0 +1,157 @@
+{
+  "first_name": {
+    "type": "input",
+    "label": "First Name",
+    "value": ""
+  },
+  "last_name": {
+    "type": "input",
+    "label": "Last Name",
+    "value": ""
+  },
+  "email_address": {
+    "type": "input",
+    "label": "Email Address",
+    "value": ""
+  },
+  "phone_number": {
+    "type": "input",
+    "label": "Phone Number",
+    "value": ""
+  },
+  "date_of_birth": {
+    "type": "input",
+    "label": "Date of Birth",
+    "value": ""
+  },
+  "street_address": {
+    "type": "input",
+    "label": "Street Address",
+    "value": ""
+  },
+  "city": {
+    "type": "input",
+    "label": "City",
+    "value": ""
+  },
+  "zip_code": {
+    "type": "input",
+    "label": "ZIP Code",
+    "value": ""
+  },
+  "company_name": {
+    "type": "input",
+    "label": "Company Name",
+    "value": ""
+  },
+  "job_title": {
+    "type": "input",
+    "label": "Job Title",
+    "value": ""
+  },
+  "male": {
+    "type": "radio",
+    "label": "Male",
+    "value": ""
+  },
+  "female": {
+    "type": "radio",
+    "label": "Female",
+    "value": ""
+  },
+  "other": {
+    "type": "radio",
+    "label": "Other",
+    "value": ""
+  },
+  "sports": {
+    "type": "checkbox",
+    "label": "Sports",
+    "value": ""
+  },
+  "music": {
+    "type": "checkbox",
+    "label": "Music",
+    "value": ""
+  },
+  "technology": {
+    "type": "checkbox",
+    "label": "Technology",
+    "value": ""
+  },
+  "travel": {
+    "type": "checkbox",
+    "label": "Travel",
+    "value": ""
+  },
+  "reading": {
+    "type": "checkbox",
+    "label": "Reading",
+    "value": ""
+  },
+  "cooking": {
+    "type": "checkbox",
+    "label": "Cooking",
+    "value": ""
+  },
+  "newsletter_subscription": {
+    "type": "checkbox",
+    "label": "Newsletter Subscription",
+    "value": ""
+  },
+  "product_updates": {
+    "type": "checkbox",
+    "label": "Product Updates",
+    "value": ""
+  },
+  "event_notifications": {
+    "type": "checkbox",
+    "label": "Event Notifications",
+    "value": ""
+  },
+  "marketing_communications": {
+    "type": "checkbox",
+    "label": "Marketing Communications",
+    "value": ""
+  },
+  "emergency_contact": {
+    "type": "input",
+    "label": "Emergency Contact",
+    "value": ""
+  },
+  "additional_comments": {
+    "type": "input",
+    "label": "Additional Comments",
+    "value": ""
+  },
+  "social_security_number": {
+    "type": "input",
+    "label": "Social Security Number",
+    "value": ""
+  },
+  "i_agree_to_terms_conditions": {
+    "type": "checkbox",
+    "label": "I agree to Terms & Conditions",
+    "value": ""
+  },
+  "subscribe_to_our_weekly_newsletter": {
+    "type": "checkbox",
+    "label": "Subscribe to our weekly newsletter",
+    "value": ""
+  },
+  "preferred_contact_method_email": {
+    "type": "radio",
+    "label": "Preferred Contact Method: Email",
+    "value": ""
+  },
+  "preferred_contact_method_phone": {
+    "type": "radio",
+    "label": "Preferred Contact Method: Phone",
+    "value": ""
+  },
+  "preferred_contact_method_mail": {
+    "type": "radio",
+    "label": "Preferred Contact Method: Mail",
+    "value": ""
+  }
+}
